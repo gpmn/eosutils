@@ -149,7 +149,7 @@ func main() {
 	offset := uint64(100)
 	//var respActions ResponseGetActions
 outloop:
-	for pos := *fromPos; pos < 100000; pos += offset {
+	for pos := *fromPos; ; pos += offset {
 		log.Printf("pos %d, offset %d", pos, offset)
 		params := fmt.Sprintf(`{"account_name": "%s", "pos": "%d", "offset": "%d"}`, *bp, pos, offset)
 
@@ -231,11 +231,6 @@ outloop:
 				panic("no voterName")
 			}
 
-			if old, ok := voteInfos[voterName]; ok {
-				if old.SeqNum > uint64(act.GlobalActionSeq) { // 以后面的为准
-					continue
-				}
-			}
 			infoPtr := &VoteInfo{
 				SeqNum:    uint64(act.GlobalActionSeq),
 				BlockNum:  act.BlockNum,
@@ -245,44 +240,49 @@ outloop:
 				BPName:    info["bpname"].(string),
 				Symbol:    ss[1],
 			}
-
-			cnt, _ := dbmap.SelectInt("SELECT count(*) FROM VoteInfo WHERE SeqNum=?", infoPtr.SeqNum)
-			if cnt > 0 {
-				switch *ondup {
-				case "query":
-					if ondupSelection == 'g' {
-						break
-					}
-					fmt.Printf(`found duplicated vote @ SeqNum %d. press o/i/t/g to continue.
+			if dbmap != nil {
+				cnt, _ := dbmap.SelectInt("SELECT count(*) FROM VoteInfo WHERE SeqNum=?", infoPtr.SeqNum)
+				if cnt > 0 {
+					switch *ondup {
+					case "query":
+						if ondupSelection == 'g' {
+							break
+						}
+						fmt.Printf(`found duplicated vote @ SeqNum %d. press o/i/t/g to continue.
 overwrite this time(o)/ignore this time(i)/term for all(t)/goon for all(g)
 `, infoPtr.BlockNum)
-					if _, err = fmt.Scanf("%c", &ondupSelection); nil != err {
-						log.Printf("fmt.Scanf failed : %v", err)
-						return
-					}
+						if _, err = fmt.Scanf("%c", &ondupSelection); nil != err {
+							log.Printf("fmt.Scanf failed : %v", err)
+							return
+						}
 
-					if ondupSelection == 't' {
-						log.Printf("terminate by dup reaction")
+						if ondupSelection == 't' {
+							log.Printf("terminate by dup reaction")
+							break outloop
+						}
+						if ondupSelection == 'i' {
+							break // continue
+						}
+					case "goon":
+						break
+					case "term":
 						break outloop
+					default:
 					}
-					if ondupSelection == 'i' {
-						break // continue
-					}
-				case "goon":
-					break
-				case "term":
-					break outloop
-				default:
 				}
 			}
-			voteInfos[voterName] = infoPtr
-			if dbmap != nil {
-				if err = saveVoteInfo(dbmap, infoPtr); nil != err {
-					log.Printf("saveVoteInfo failed : %v", err)
-					return
+			if err = saveVoteInfo(dbmap, infoPtr); nil != err {
+				log.Printf("saveVoteInfo failed : %v", err)
+				return
+			}
+
+			if old, ok := voteInfos[voterName]; ok {
+				if old.SeqNum > uint64(act.GlobalActionSeq) { // 以后面的为准
+					continue
 				}
 			}
 
+			voteInfos[voterName] = infoPtr
 		}
 	}
 
@@ -329,6 +329,9 @@ func initDB(path string) (*gorp.DbMap, error) {
 }
 
 func saveVoteInfo(dbmap *gorp.DbMap, info *VoteInfo) error {
+	if dbmap == nil {
+		return nil
+	}
 	sql := "INSERT OR REPLACE INTO VoteInfo (SeqNum,BlockNum,Quantity,BlockTime,Voter,BPName,Symbol) VALUES (?,?,?,?,?,?,?)"
 	_, err := dbmap.Exec(sql, info.SeqNum, info.BlockNum, info.Quantity, info.BlockTime, info.Voter, info.BPName, info.Symbol)
 	return err
