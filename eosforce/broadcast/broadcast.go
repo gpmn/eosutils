@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"time"
 )
 
 type sendHistoryItem struct {
@@ -19,7 +18,9 @@ type sendHistoryItem struct {
 	Sent    bool
 }
 
-type sendHistory map[string]sendHistoryItem
+type sendHistory struct {
+	LastOk string
+}
 
 func (his *sendHistory) load(path string) error {
 	buf, err := ioutil.ReadFile(path)
@@ -69,7 +70,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "snap param missed.\n")
 		os.Exit(1)
 	}
-	history := make(sendHistory)
+	history := sendHistory{LastOk: ""}
 	if err := history.load(*hisPath); nil != err {
 		fmt.Fprintf(os.Stderr, "load history failed : %v, used default.\n", err)
 	}
@@ -92,6 +93,10 @@ func main() {
 
 	reader := csv.NewReader(file)
 	defer history.save(*hisPath)
+	found := false
+	if history.LastOk == "" {
+		found = true
+	}
 	cnt := 0
 	for {
 		line, err := reader.Read()
@@ -104,6 +109,14 @@ func main() {
 		}
 		log.Printf("%v", line)
 		account := line[1]
+
+		if !found {
+			if account == history.LastOk {
+				found = true
+			}
+			continue
+		}
+
 		quantity, err := strconv.ParseFloat(line[3], 64)
 		if nil != err {
 			fmt.Fprintf(os.Stderr, "strconv.ParseFloat(%s,64) failed : %s.\n", line[3], err.Error())
@@ -112,22 +125,17 @@ func main() {
 		if quantity < *valve {
 			continue
 		}
-		if his, ok := history[account]; ok || his.Sent {
-			continue
-		}
+
 		for {
 			if err = sendMessage(account, *adv); nil == err {
 				cnt++
-				history[account] = sendHistoryItem{
-					Account: account,
-					Sent:    true,
-				}
+				history.LastOk = account
 				if cnt%10 == 0 {
 					history.save(*hisPath)
 				}
 				break
 			}
-			time.Sleep(5 * time.Second)
+			//time.Sleep(1 * time.Second)
 		}
 	}
 }
