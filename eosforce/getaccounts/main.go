@@ -15,7 +15,13 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-//const _URL = "http://132.232.22.135/v1/chain/get_table_rows"
+// AccountInfo :
+type AccountInfo struct {
+	Account  string
+	Amount   uint64
+	Notified bool
+}
+
 const (
 	_URL    = "https://w2.eosforce.cn/v1/chain/get_table_rows"
 	dbparam = "./account.db"
@@ -43,13 +49,6 @@ func strToName(strName string) uint64 {
 		name |= uint64(charToVal(strName[12])) & 0xf
 	}
 	return name
-}
-
-// AccountInfo :
-type AccountInfo struct {
-	Account  string
-	Amount   uint64
-	Notified bool
 }
 
 type respGetAccounts struct {
